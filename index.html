@@ -121,7 +121,7 @@ td{color:#eee}
     <div class="brand">
       <div class="brand-icon">🧙‍♂️</div>
       <h1>ADMIN PANEL</h1>
-      <p>Magic Cauldron Online Control Center</p>
+      <p>Magic Cauldron Online • Google Sheets</p>
     </div>
     <form class="form-grid" id="adminLoginForm">
       <div class="field">
@@ -158,7 +158,7 @@ td{color:#eee}
         <h2 id="pageTitle">Dashboard</h2>
         <div class="sub" id="pageSub">Ringkasan permainan dan member.</div>
       </div>
-      <div class="note" id="syncInfo">● ONLINE • SUPABASE</div>
+      <div class="note" id="syncInfo">● ONLINE • GOOGLE SHEETS</div>
     </div>
 
     <section id="tab-dashboard" class="tab">
@@ -297,32 +297,26 @@ td{color:#eee}
 (()=>{
 "use strict";
 
-/* =========================================================
-   ONLINE DATABASE - SUPABASE
-   ISI 2 NILAI DI BAWAH dari Supabase:
-   Project Settings > API
-   ========================================================= */
-const SUPABASE_URL = "PASTE_SUPABASE_PROJECT_URL_HERE";
-const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY_HERE";
-const ADMIN_SESSION = "magicCauldronAdminToken_online_v1";
+const API_URL = "https://script.google.com/macros/s/AKfycbwq0NdGQSlHjAl1t5RkhVk_WmHwHXmZcV_715vZodBaHf6eTQ8EqkeTvQecYZmdYpb32Q/exec";
+const ADMIN_SESSION = "magicCauldronAdminToken_sheet_v1";
 
 const $=id=>document.getElementById(id);
-const adminLogin=$("adminLogin"), app=$("app"), sidebar=$("sidebar");
-const pageTitle=$("pageTitle"), pageSub=$("pageSub");
+const adminLogin=$("adminLogin");
+const app=$("app");
+const sidebar=$("sidebar");
+const pageTitle=$("pageTitle");
+const pageSub=$("pageSub");
 
-let activeTab="dashboard";
 let adminToken=sessionStorage.getItem(ADMIN_SESSION)||"";
+let activeTab="dashboard";
 let members=[];
 let prizes=[];
 let history=[];
 let dashboard={};
 let refreshBusy=false;
-let pollTimer=0;
 
-function configReady(){
-  return /^https:\/\/.+\.supabase\.co\/?$/.test(SUPABASE_URL)
-    && !SUPABASE_ANON_KEY.includes("PASTE_")
-    && SUPABASE_ANON_KEY.length>20;
+function apiConfigured(){
+  return /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(API_URL);
 }
 
 function esc(v){
@@ -333,10 +327,8 @@ function esc(v){
 
 function fmtTime(iso){
   try{
-    return new Intl.DateTimeFormat("id-ID",{
-      dateStyle:"short",timeStyle:"short"
-    }).format(new Date(iso));
-  }catch(e){return iso||"-"}
+    return new Intl.DateTimeFormat("id-ID",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso));
+  }catch(e){return iso||"-";}
 }
 
 function friendlyError(err){
@@ -349,59 +341,43 @@ function friendlyError(err){
     ["MEMBER_NOT_FOUND","Member tidak ditemukan."],
     ["PRIZE_NOT_FOUND","Hadiah tidak ditemukan."],
     ["ADMIN_USERNAME_ALREADY_EXISTS","Admin ID sudah digunakan."],
-    ["Failed to fetch","Tidak dapat terhubung ke server. Cek internet / konfigurasi Supabase."]
+    ["SPREADSHEET_ID_NOT_CONFIGURED","Spreadsheet ID belum diisi pada Code.gs."],
+    ["Failed to fetch","Tidak dapat menghubungi Apps Script. Cek internet dan URL /exec."]
   ];
-  for(const [key,msg] of map) if(raw.includes(key)) return msg;
+  for(const [key,msg] of map){if(raw.includes(key))return msg;}
   return raw||"Terjadi kesalahan server.";
 }
 
-async function rpc(functionName,params={}){
-  if(!configReady()){
-    throw new Error("Supabase belum dikonfigurasi. Isi SUPABASE_URL dan SUPABASE_ANON_KEY.");
-  }
+async function api(action,payload={}){
+  if(!apiConfigured())throw new Error("API_URL belum dikonfigurasi.");
 
-  const res=await fetch(
-    `${SUPABASE_URL.replace(/\/$/,"")}/rest/v1/rpc/${functionName}`,
-    {
-      method:"POST",
-      headers:{
-        "apikey":SUPABASE_ANON_KEY,
-        "Authorization":`Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type":"application/json"
-      },
-      body:JSON.stringify(params)
-    }
-  );
+  const response=await fetch(API_URL,{
+    method:"POST",
+    redirect:"follow",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({action,...payload})
+  });
 
-  const text=await res.text();
-  let data=null;
-  if(text){
-    try{data=JSON.parse(text)}catch(e){data=text}
-  }
+  const text=await response.text();
+  let result;
+  try{result=JSON.parse(text);}
+  catch(e){throw new Error("Respons API tidak valid. Pastikan URL deployment berakhiran /exec.");}
 
-  if(!res.ok){
-    const msg=(data&&typeof data==="object"&&(data.message||data.details||data.hint))
-      ||text||`HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
+  if(!result.ok)throw new Error(result.error||"API_ERROR");
+  return result.data;
 }
 
 function openModal(id){$(id).classList.add("show")}
 function closeModal(id){$(id).classList.remove("show")}
 
-document.querySelectorAll("[data-close]").forEach(
-  b=>b.onclick=()=>closeModal(b.dataset.close)
-);
-document.querySelectorAll(".modal").forEach(
-  m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id)})
-);
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
+document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id)}));
 
 const tabMeta={
-  dashboard:["Dashboard","Ringkasan permainan dan member online."],
-  members:["Member & Login","Atur User ID, password, kesempatan bermain, dan hadiah berikutnya."],
-  prizes:["Hadiah","Atur daftar hadiah, peluang, stok, dan status."],
-  history:["Riwayat","Hasil permainan member dari semua perangkat."],
+  dashboard:["Dashboard","Ringkasan permainan dan member dari Google Sheet."],
+  members:["Member & Login","Atur login, kesempatan bermain, dan hadiah berikutnya."],
+  prizes:["Hadiah","Atur hadiah, bobot peluang, stok, dan status."],
+  history:["Riwayat","Riwayat permainan member dari semua perangkat."],
   settings:["Pengaturan","Ubah login admin atau reset data game."]
 };
 
@@ -409,31 +385,25 @@ function switchTab(name){
   activeTab=name;
   document.querySelectorAll(".tab").forEach(t=>t.classList.add("hidden"));
   $("tab-"+name).classList.remove("hidden");
-  document.querySelectorAll(".nav button").forEach(
-    b=>b.classList.toggle("active",b.dataset.tab===name)
-  );
+  document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
   pageTitle.textContent=tabMeta[name][0];
   pageSub.textContent=tabMeta[name][1];
   sidebar.classList.remove("open");
 }
-document.querySelectorAll(".nav button").forEach(
-  b=>b.onclick=()=>switchTab(b.dataset.tab)
-);
+
+document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 
 function renderDashboard(){
-  $("statMembers").textContent=Number(dashboard.total_members||0);
-  $("statActive").textContent=Number(dashboard.active_members||0);
-  $("statChances").textContent=Number(dashboard.total_chances||0);
-  $("statPlays").textContent=Number(dashboard.total_plays||0);
+  $("statMembers").textContent=Number(dashboard.totalMembers||0);
+  $("statActive").textContent=Number(dashboard.activeMembers||0);
+  $("statChances").textContent=Number(dashboard.totalChances||0);
+  $("statPlays").textContent=Number(dashboard.totalPlays||0);
 
   const recent=history.slice(0,6);
   $("recentHistory").innerHTML=recent.length
     ?recent.map(h=>`
       <div class="history-item">
-        <div>
-          <b>${esc(h.member_user_id)} — ${esc(h.prize_name)}</b><br>
-          <span>${esc(h.prize_value||"")}</span>
-        </div>
+        <div><b>${esc(h.memberId)} — ${esc(h.prizeName)}</b><br><span>${esc(h.prizeValue||"")}</span></div>
         <span>${fmtTime(h.time)}</span>
       </div>`).join("")
     :`<div class="empty">Belum ada riwayat permainan.</div>`;
@@ -449,33 +419,27 @@ function fillPrizeSelect(selected=""){
 
 function renderMembers(){
   const q=$("memberSearch").value.trim().toLowerCase();
-  const rows=members.filter(m=>!q||String(m.user_id).toLowerCase().includes(q));
+  const rows=members.filter(m=>!q||String(m.userId).toLowerCase().includes(q));
 
   $("memberRows").innerHTML=rows.length
     ?rows.map(m=>`
       <tr>
-        <td><b>${esc(m.user_id)}</b></td>
+        <td><b>${esc(m.userId)}</b></td>
         <td>••••••••</td>
         <td><b>${Number(m.chances)||0}</b></td>
-        <td>${esc(m.next_prize_name||"-")}</td>
+        <td>${esc(m.nextPrizeName||"-")}</td>
         <td><span class="badge ${m.active?"on":"off"}">${m.active?"AKTIF":"NONAKTIF"}</span></td>
         <td><div class="actions">
-          <button class="btn small" data-member-edit="${esc(m.id)}">EDIT</button>
-          <button class="btn secondary small" data-member-addchance="${esc(m.id)}">+1</button>
-          <button class="btn danger small" data-member-delete="${esc(m.id)}">HAPUS</button>
+          <button class="btn small" data-member-edit="${m.row}">EDIT</button>
+          <button class="btn secondary small" data-member-addchance="${m.row}">+1</button>
+          <button class="btn danger small" data-member-delete="${m.row}">HAPUS</button>
         </div></td>
       </tr>`).join("")
     :`<tr><td colspan="6" class="empty">Member tidak ditemukan.</td></tr>`;
 
-  document.querySelectorAll("[data-member-edit]").forEach(
-    b=>b.onclick=()=>editMember(b.dataset.memberEdit)
-  );
-  document.querySelectorAll("[data-member-addchance]").forEach(
-    b=>b.onclick=()=>addChance(b.dataset.memberAddchance)
-  );
-  document.querySelectorAll("[data-member-delete]").forEach(
-    b=>b.onclick=()=>deleteMember(b.dataset.memberDelete)
-  );
+  document.querySelectorAll("[data-member-edit]").forEach(b=>b.onclick=()=>editMember(Number(b.dataset.memberEdit)));
+  document.querySelectorAll("[data-member-addchance]").forEach(b=>b.onclick=()=>addChance(Number(b.dataset.memberAddchance)));
+  document.querySelectorAll("[data-member-delete]").forEach(b=>b.onclick=()=>deleteMember(Number(b.dataset.memberDelete)));
 }
 
 function renderPrizes(){
@@ -483,7 +447,7 @@ function renderPrizes(){
     ?prizes.map(p=>`
       <tr>
         <td><b>${esc(p.name)}</b></td>
-        <td>${esc(p.value_text||"-")}</td>
+        <td>${esc(p.value||"-")}</td>
         <td>${Number(p.weight)||0}</td>
         <td>${Number(p.stock)===-1?"∞":Number(p.stock)||0}</td>
         <td><span class="badge ${p.active?"on":"off"}">${p.active?"AKTIF":"NONAKTIF"}</span></td>
@@ -494,46 +458,34 @@ function renderPrizes(){
       </tr>`).join("")
     :`<tr><td colspan="6" class="empty">Belum ada hadiah.</td></tr>`;
 
-  document.querySelectorAll("[data-prize-edit]").forEach(
-    b=>b.onclick=()=>editPrize(b.dataset.prizeEdit)
-  );
-  document.querySelectorAll("[data-prize-delete]").forEach(
-    b=>b.onclick=()=>deletePrize(b.dataset.prizeDelete)
-  );
+  document.querySelectorAll("[data-prize-edit]").forEach(b=>b.onclick=()=>editPrize(b.dataset.prizeEdit));
+  document.querySelectorAll("[data-prize-delete]").forEach(b=>b.onclick=()=>deletePrize(b.dataset.prizeDelete));
 }
 
 function renderHistory(){
   const q=$("historySearch").value.trim().toLowerCase();
-  const rows=history.filter(h=>
-    !q
-    ||String(h.member_user_id).toLowerCase().includes(q)
-    ||String(h.prize_name).toLowerCase().includes(q)
-  );
+  const rows=history.filter(h=>!q||String(h.memberId).toLowerCase().includes(q)||String(h.prizeName).toLowerCase().includes(q));
 
   $("historyRows").innerHTML=rows.length
     ?rows.map(h=>`
       <tr>
         <td>${fmtTime(h.time)}</td>
-        <td><b>${esc(h.member_user_id)}</b></td>
+        <td><b>${esc(h.memberId)}</b></td>
         <td>${esc(h.bottle||"-")}</td>
-        <td>${esc(h.prize_name)}</td>
-        <td>${esc(h.prize_value||"-")}</td>
+        <td>${esc(h.prizeName)}</td>
+        <td>${esc(h.prizeValue||"-")}</td>
         <td><span class="badge ${h.status==="SELESAI"?"done":"wait"}">${esc(h.status)}</span></td>
-        <td>
-          <button class="btn secondary small" data-history-toggle="${esc(h.id)}">
-            ${h.status==="SELESAI"?"BATAL SELESAI":"TANDAI SELESAI"}
-          </button>
-        </td>
+        <td><button class="btn secondary small" data-history-toggle="${h.row}">
+          ${h.status==="SELESAI"?"BATAL SELESAI":"TANDAI SELESAI"}
+        </button></td>
       </tr>`).join("")
     :`<tr><td colspan="7" class="empty">Belum ada riwayat.</td></tr>`;
 
-  document.querySelectorAll("[data-history-toggle]").forEach(
-    b=>b.onclick=()=>toggleHistory(b.dataset.historyToggle)
-  );
+  document.querySelectorAll("[data-history-toggle]").forEach(b=>b.onclick=()=>toggleHistory(Number(b.dataset.historyToggle)));
 }
 
 function renderSettings(){
-  $("setAdminId").value=dashboard.admin_username||"";
+  $("setAdminId").value=dashboard.adminUsername||"";
   $("setAdminPass").value="";
 }
 
@@ -548,12 +500,13 @@ function renderAll(){
 async function refreshAll({silent=false}={}){
   if(!adminToken||refreshBusy)return;
   refreshBusy=true;
+
   try{
     const [d,m,p,h]=await Promise.all([
-      rpc("mc_admin_dashboard",{p_token:adminToken}),
-      rpc("mc_admin_list_members",{p_token:adminToken}),
-      rpc("mc_admin_list_prizes",{p_token:adminToken}),
-      rpc("mc_admin_list_history",{p_token:adminToken,p_limit:1000})
+      api("adminDashboard",{token:adminToken}),
+      api("adminListMembers",{token:adminToken}),
+      api("adminListPrizes",{token:adminToken}),
+      api("adminListHistory",{token:adminToken,limit:1000})
     ]);
 
     dashboard=d||{};
@@ -587,15 +540,15 @@ async function showApp(){
 }
 
 async function logoutAdmin(callServer=true){
-  const old=adminToken;
+  const oldToken=adminToken;
   adminToken="";
   sessionStorage.removeItem(ADMIN_SESSION);
   app.style.display="none";
   adminLogin.style.display="flex";
   $("adminPassInput").value="";
 
-  if(callServer&&old){
-    try{await rpc("mc_admin_logout",{p_token:old})}catch(e){}
+  if(callServer&&oldToken&&apiConfigured()){
+    try{await api("adminLogout",{token:oldToken});}catch(e){}
   }
 }
 
@@ -603,30 +556,30 @@ $("adminLoginForm").addEventListener("submit",async e=>{
   e.preventDefault();
   $("adminLoginError").textContent="";
 
-  if(!configReady()){
-    $("adminLoginError").textContent=
-      "Supabase belum dikonfigurasi. Isi Project URL dan Anon Key pada script.";
+  if(!apiConfigured()){
+    $("adminLoginError").textContent="Isi API_URL Google Apps Script pada script admin.";
     return;
   }
 
   const btn=e.currentTarget.querySelector('button[type="submit"]');
-  const oldText=btn.textContent;
+  const old=btn.textContent;
   btn.disabled=true;
   btn.textContent="MENGHUBUNGKAN...";
 
   try{
-    const result=await rpc("mc_admin_login",{
-      p_username:$("adminIdInput").value.trim(),
-      p_password:$("adminPassInput").value
+    const r=await api("adminLogin",{
+      username:$("adminIdInput").value.trim(),
+      password:$("adminPassInput").value
     });
-    adminToken=result.token;
+
+    adminToken=r.token;
     sessionStorage.setItem(ADMIN_SESSION,adminToken);
     await showApp();
   }catch(err){
     $("adminLoginError").textContent=friendlyError(err);
   }finally{
     btn.disabled=false;
-    btn.textContent=oldText;
+    btn.textContent=old;
   }
 });
 
@@ -648,60 +601,55 @@ $("addMemberBtn").onclick=()=>{
   openModal("memberModal");
 };
 
-function editMember(id){
-  const m=members.find(x=>x.id===id);
+function editMember(row){
+  const m=members.find(x=>Number(x.row)===Number(row));
   if(!m)return;
 
   $("memberModalTitle").textContent="Edit Member";
-  $("memberOriginalId").value=m.id;
-  $("memberId").value=m.user_id;
+  $("memberOriginalId").value=m.row;
+  $("memberId").value=m.userId;
   $("memberPassword").value="";
   $("memberPassword").required=false;
   $("memberPassword").placeholder="Kosongkan jika password tidak diubah";
   $("memberChances").value=Number(m.chances)||0;
   $("memberActive").checked=!!m.active;
-  fillPrizeSelect(m.next_prize_id||"");
+  fillPrizeSelect(m.nextPrizeId||"");
   openModal("memberModal");
 }
 
-async function addChance(id){
+async function addChance(row){
   try{
-    await rpc("mc_admin_adjust_chances",{
-      p_token:adminToken,p_member_id:id,p_delta:1
-    });
+    await api("adminAdjustChances",{token:adminToken,row,delta:1});
     await refreshAll();
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 }
 
-async function deleteMember(id){
-  const m=members.find(x=>x.id===id);
-  if(!confirm(`Hapus member ${m?.user_id||""}?`))return;
+async function deleteMember(row){
+  const m=members.find(x=>Number(x.row)===Number(row));
+  if(!confirm(`Hapus member ${m?.userId||""}?`))return;
 
   try{
-    await rpc("mc_admin_delete_member",{
-      p_token:adminToken,p_member_id:id
-    });
+    await api("adminDeleteMember",{token:adminToken,row});
     await refreshAll();
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 }
 
 $("memberForm").addEventListener("submit",async e=>{
   e.preventDefault();
-
-  const original=$("memberOriginalId").value||null;
   const btn=e.currentTarget.querySelector('button[type="submit"]');
   btn.disabled=true;
 
   try{
-    await rpc("mc_admin_save_member",{
-      p_token:adminToken,
-      p_member_id:original,
-      p_user_id:$("memberId").value.trim(),
-      p_password:$("memberPassword").value||"",
-      p_chances:Math.max(0,Number($("memberChances").value)||0),
-      p_active:$("memberActive").checked,
-      p_next_prize_id:$("memberNextPrize").value||null
+    await api("adminSaveMember",{
+      token:adminToken,
+      row:Number($("memberOriginalId").value||0),
+      userId:$("memberId").value.trim(),
+      password:$("memberPassword").value||"",
+      chances:Math.max(0,Number($("memberChances").value)||0),
+      active:$("memberActive").checked,
+      nextPrizeId:$("memberNextPrize").value||""
     });
+
     closeModal("memberModal");
     await refreshAll();
   }catch(err){
@@ -729,7 +677,7 @@ function editPrize(id){
   $("prizeModalTitle").textContent="Edit Hadiah";
   $("prizeEditId").value=p.id;
   $("prizeName").value=p.name;
-  $("prizeValue").value=p.value_text||"";
+  $("prizeValue").value=p.value||"";
   $("prizeWeight").value=Number(p.weight)||0;
   $("prizeStock").value=Number(p.stock);
   $("prizeActive").checked=!!p.active;
@@ -738,12 +686,11 @@ function editPrize(id){
 
 async function deletePrize(id){
   if(!confirm("Hapus hadiah ini?"))return;
+
   try{
-    await rpc("mc_admin_delete_prize",{
-      p_token:adminToken,p_prize_id:id
-    });
+    await api("adminDeletePrize",{token:adminToken,id});
     await refreshAll();
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 }
 
 $("prizeForm").addEventListener("submit",async e=>{
@@ -752,15 +699,16 @@ $("prizeForm").addEventListener("submit",async e=>{
   btn.disabled=true;
 
   try{
-    await rpc("mc_admin_save_prize",{
-      p_token:adminToken,
-      p_prize_id:$("prizeEditId").value||null,
-      p_name:$("prizeName").value.trim(),
-      p_value_text:$("prizeValue").value.trim(),
-      p_weight:Math.max(0,Number($("prizeWeight").value)||0),
-      p_stock:Math.max(-1,Number($("prizeStock").value)||0),
-      p_active:$("prizeActive").checked
+    await api("adminSavePrize",{
+      token:adminToken,
+      id:$("prizeEditId").value||"",
+      name:$("prizeName").value.trim(),
+      value:$("prizeValue").value.trim(),
+      weight:Math.max(0,Number($("prizeWeight").value)||0),
+      stock:Math.max(-1,Number($("prizeStock").value)),
+      active:$("prizeActive").checked
     });
+
     closeModal("prizeModal");
     await refreshAll();
   }catch(err){
@@ -770,67 +718,68 @@ $("prizeForm").addEventListener("submit",async e=>{
   }
 });
 
-async function toggleHistory(id){
-  const h=history.find(x=>x.id===id);
+async function toggleHistory(row){
+  const h=history.find(x=>Number(x.row)===Number(row));
   if(!h)return;
-  const next=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";
+
+  const status=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";
 
   try{
-    await rpc("mc_admin_set_history_status",{
-      p_token:adminToken,p_history_id:id,p_status:next
-    });
+    await api("adminSetHistoryStatus",{token:adminToken,row,status});
     await refreshAll();
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 }
 
 $("clearHistoryBtn").onclick=async()=>{
   if(!confirm("Hapus seluruh riwayat permainan?"))return;
+
   try{
-    await rpc("mc_admin_clear_history",{p_token:adminToken});
+    await api("adminClearHistory",{token:adminToken});
     await refreshAll();
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 };
 
 $("adminSettingsForm").addEventListener("submit",async e=>{
   e.preventDefault();
+
   try{
-    await rpc("mc_admin_update_credentials",{
-      p_token:adminToken,
-      p_username:$("setAdminId").value.trim(),
-      p_password:$("setAdminPass").value||""
+    const r=await api("adminUpdateCredentials",{
+      token:adminToken,
+      username:$("setAdminId").value.trim(),
+      password:$("setAdminPass").value||""
     });
+
+    adminToken=r.token;
+    sessionStorage.setItem(ADMIN_SESSION,adminToken);
     $("setAdminPass").value="";
     await refreshAll();
     alert("Login admin berhasil diperbarui.");
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 });
 
 $("resetDbBtn").onclick=async()=>{
   if(!confirm("RESET SEMUA DATA MEMBER, HADIAH, DAN RIWAYAT? Tindakan ini tidak bisa dibatalkan."))return;
+
   try{
-    await rpc("mc_admin_reset_game_data",{p_token:adminToken});
+    await api("adminResetGameData",{token:adminToken});
     await refreshAll();
     alert("Data game berhasil direset.");
-  }catch(err){alert(friendlyError(err))}
+  }catch(err){alert(friendlyError(err));}
 };
 
-/* Refresh online otomatis. Perubahan game/member muncul tanpa reload. */
-pollTimer=setInterval(()=>{
+setInterval(()=>{
   if(adminToken&&!document.hidden)refreshAll({silent:true});
-},2500);
+},3000);
 
 document.addEventListener("visibilitychange",()=>{
   if(!document.hidden&&adminToken)refreshAll({silent:true});
 });
 
-if(!configReady()){
-  $("adminLoginError").textContent=
-    "Isi SUPABASE_URL dan SUPABASE_ANON_KEY pada script terlebih dahulu.";
+if(!apiConfigured()){
+  $("adminLoginError").textContent="Isi API_URL Google Apps Script pada script terlebih dahulu.";
 }
 
-if(adminToken){
-  showApp();
-}
+if(adminToken)showApp();
 })();
 </script>
 </body>
