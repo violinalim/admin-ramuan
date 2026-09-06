@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
 <title>Magic Cauldron Admin</title>
 <style>
 *{box-sizing:border-box}
@@ -97,6 +96,7 @@ td{color:#eee}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .checkline{display:flex;align-items:center;gap:8px;color:#d8c9df;font-size:12px}
 .note{font-size:11px;color:var(--muted);line-height:1.5}
+#syncInfo{color:#8fe9ad;font-weight:800;letter-spacing:.3px}
 .section-title{font-size:14px;margin:0 0 12px}
 .empty{padding:26px;text-align:center;color:var(--muted);font-size:12px}
 .row-stack{display:grid;gap:12px}
@@ -159,7 +159,7 @@ td{color:#eee}
         <h2 id="pageTitle">Dashboard</h2>
         <div class="sub" id="pageSub">Ringkasan permainan dan member.</div>
       </div>
-      <div class="note">Data tersimpan pada browser yang sama</div>
+      <div class="note" id="syncInfo">● TERHUBUNG</div>
     </div>
 
     <section id="tab-dashboard" class="tab">
@@ -244,7 +244,7 @@ td{color:#eee}
         </div>
         <div class="panel">
           <h3 class="section-title">Reset Data</h3>
-          <div class="note">Mengembalikan member, hadiah, riwayat, dan login admin ke data awal.</div>
+          <div class="note">Mengembalikan member, hadiah, riwayat, dan login admin ke data awal. Panel admin dan game akan sinkron otomatis selama berada pada domain/origin yang sama.</div>
           <div style="margin-top:12px"><button class="btn danger" id="resetDbBtn">RESET SEMUA DATA</button></div>
         </div>
       </div>
@@ -300,6 +300,52 @@ td{color:#eee}
 const STORAGE_KEY="magicCauldronDB_v1";
 const ADMIN_SESSION="magicCauldronAdminSession_v1";
 
+const SYNC_CHANNEL_NAME = "magicCauldronSync_v1";
+  const syncChannel = ("BroadcastChannel" in window) ? new BroadcastChannel(SYNC_CHANNEL_NAME) : null;
+  let lastDbSnapshot = localStorage.getItem(STORAGE_KEY) || "";
+
+  function announceDbUpdate(db, source="unknown"){
+    try{
+      lastDbSnapshot = JSON.stringify(db);
+      if(syncChannel){
+        syncChannel.postMessage({
+          type:"db-updated",
+          source,
+          revision:Number(db.revision || 0),
+          updatedAt:db.updatedAt || new Date().toISOString()
+        });
+      }
+    }catch(e){}
+  }
+
+  function watchDbChanges(onChange){
+    window.addEventListener("storage",(e)=>{
+      if(e.key === STORAGE_KEY){
+        lastDbSnapshot = e.newValue || "";
+        onChange("storage");
+      }
+    });
+
+    if(syncChannel){
+      syncChannel.addEventListener("message",(e)=>{
+        if(e.data && e.data.type === "db-updated"){
+          onChange("broadcast");
+        }
+      });
+    }
+
+    /* Fallback polling: memastikan perubahan tetap terbaca
+       walau browser tidak memicu storage/BroadcastChannel dengan sempurna. */
+    setInterval(()=>{
+      const current = localStorage.getItem(STORAGE_KEY) || "";
+      if(current !== lastDbSnapshot){
+        lastDbSnapshot = current;
+        onChange("poll");
+      }
+    }, 900);
+  }
+
+
 const $=id=>document.getElementById(id);
 const adminLogin=$("adminLogin"), app=$("app"), sidebar=$("sidebar");
 const pageTitle=$("pageTitle"), pageSub=$("pageSub");
@@ -308,6 +354,8 @@ let activeTab="dashboard";
 function defaultDB(){
   return {
     version:1,
+    revision:1,
+    updatedAt:new Date().toISOString(),
     admin:{id:"admin",password:"CERIA123"},
     members:[{id:"DEMO",password:"123456",chances:3,active:true,nextPrizeId:""}],
     prizes:[
@@ -329,7 +377,12 @@ function loadDB(){
     return d;
   }catch(e){const d=defaultDB();saveDB(d);return d}
 }
-function saveDB(db){localStorage.setItem(STORAGE_KEY,JSON.stringify(db))}
+function saveDB(db,source="admin"){
+  db.revision=Number(db.revision||0)+1;
+  db.updatedAt=new Date().toISOString();
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(db));
+  announceDbUpdate(db,source);
+}
 function esc(v){return String(v??"").replace(/[&<>"']/g,s=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[s]))}
 function fmtTime(iso){
   try{return new Intl.DateTimeFormat("id-ID",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso))}
@@ -347,6 +400,7 @@ document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if
 
 function renderAll(){
   renderDashboard();renderMembers();renderPrizes();renderHistory();renderSettings();
+  updateSyncInfo();
 }
 function showApp(){
   adminLogin.style.display="none";app.style.display="block";renderAll();switchTab(activeTab)
@@ -432,11 +486,11 @@ function editMember(id){
   fillPrizeSelect(m.nextPrizeId||"");openModal("memberModal");
 }
 function addChance(id){
-  const db=loadDB(),m=db.members.find(x=>x.id===id);if(!m)return;m.chances=(Number(m.chances)||0)+1;saveDB(db);renderAll();
+  const db=loadDB(),m=db.members.find(x=>x.id===id);if(!m)return;m.chances=(Number(m.chances)||0)+1;saveDB(db,"admin-member");renderAll();
 }
 function deleteMember(id){
   if(!confirm(`Hapus member ${id}?`))return;
-  const db=loadDB();db.members=db.members.filter(x=>x.id!==id);saveDB(db);renderAll();
+  const db=loadDB();db.members=db.members.filter(x=>x.id!==id);saveDB(db,"admin-member");renderAll();
 }
 $("memberForm").addEventListener("submit",e=>{
   e.preventDefault();
@@ -448,7 +502,7 @@ $("memberForm").addEventListener("submit",e=>{
   if(original){
     const i=db.members.findIndex(m=>m.id===original);if(i>=0)db.members[i]=data;
   }else db.members.push(data);
-  saveDB(db);closeModal("memberModal");renderAll();
+  saveDB(db,"admin-member");closeModal("memberModal");renderAll();
 });
 
 function renderPrizes(){
@@ -478,13 +532,13 @@ function editPrize(id){
 }
 function deletePrize(id){
   if(!confirm("Hapus hadiah ini?"))return;
-  const db=loadDB();db.prizes=db.prizes.filter(x=>x.id!==id);db.members.forEach(m=>{if(m.nextPrizeId===id)m.nextPrizeId=""});saveDB(db);renderAll();
+  const db=loadDB();db.prizes=db.prizes.filter(x=>x.id!==id);db.members.forEach(m=>{if(m.nextPrizeId===id)m.nextPrizeId=""});saveDB(db,"admin-member");renderAll();
 }
 $("prizeForm").addEventListener("submit",e=>{
   e.preventDefault();const db=loadDB(),id=$("prizeEditId").value;
   const data={id:id||("p_"+Date.now()),name:$("prizeName").value.trim(),value:$("prizeValue").value.trim(),weight:Math.max(0,Number($("prizeWeight").value)||0),stock:Math.max(-1,Number($("prizeStock").value)||0),active:$("prizeActive").checked};
   if(id){const i=db.prizes.findIndex(p=>p.id===id);if(i>=0)db.prizes[i]=data}else db.prizes.push(data);
-  saveDB(db);closeModal("prizeModal");renderAll();
+  saveDB(db,"admin-prize");closeModal("prizeModal");renderAll();
 });
 
 function renderHistory(){
@@ -501,25 +555,48 @@ function renderHistory(){
 }
 $("historySearch").addEventListener("input",renderHistory);
 function toggleHistory(id){
-  const db=loadDB(),h=db.history.find(x=>x.id===id);if(!h)return;h.status=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";saveDB(db);renderAll();
+  const db=loadDB(),h=db.history.find(x=>x.id===id);if(!h)return;h.status=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";saveDB(db,"admin-member");renderAll();
 }
-$("clearHistoryBtn").onclick=()=>{if(confirm("Hapus seluruh riwayat permainan?")){const db=loadDB();db.history=[];saveDB(db);renderAll()}};
+$("clearHistoryBtn").onclick=()=>{if(confirm("Hapus seluruh riwayat permainan?")){const db=loadDB();db.history=[];saveDB(db,"admin-history-clear");renderAll()}};
 
 function renderSettings(){
   const db=loadDB();$("setAdminId").value=db.admin.id;$("setAdminPass").value="";
 }
 $("adminSettingsForm").addEventListener("submit",e=>{
   e.preventDefault();const db=loadDB(),id=$("setAdminId").value.trim(),pass=$("setAdminPass").value;
-  if(!id)return;db.admin.id=id;if(pass)db.admin.password=pass;saveDB(db);$("setAdminPass").value="";alert("Login admin berhasil diperbarui.");
+  if(!id)return;db.admin.id=id;if(pass)db.admin.password=pass;saveDB(db,"admin-settings");$("setAdminPass").value="";alert("Login admin berhasil diperbarui.");
 });
 $("resetDbBtn").onclick=()=>{
   if(!confirm("RESET SEMUA DATA? Tindakan ini tidak bisa dibatalkan."))return;
-  saveDB(defaultDB());renderAll();alert("Data sudah direset.");
+  const fresh=defaultDB();
+  saveDB(fresh,"admin-reset");
+  renderAll();
+  alert("Data sudah direset.");
 };
 
-window.addEventListener("storage",e=>{if(e.key===STORAGE_KEY && sessionStorage.getItem(ADMIN_SESSION)==="1")renderAll()});
+watchDbChanges(()=>{
+  if(sessionStorage.getItem(ADMIN_SESSION)==="1"){
+    renderAll();
+    updateSyncInfo();
+  }
+});
 
-if(sessionStorage.getItem(ADMIN_SESSION)==="1")showApp();
+function updateSyncInfo(){
+  const db=loadDB();
+  const el=document.getElementById("syncInfo");
+  if(!el)return;
+  const rev=Number(db.revision||0);
+  let time="-";
+  try{
+    time=new Intl.DateTimeFormat("id-ID",{hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(db.updatedAt||Date.now()));
+  }catch(e){}
+  el.textContent=`● TERHUBUNG • REV ${rev} • ${time}`;
+}
+
+if(sessionStorage.getItem(ADMIN_SESSION)==="1"){
+  showApp();
+  updateSyncInfo();
+}
 })();
 </script>
 </body>
