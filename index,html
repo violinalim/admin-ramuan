@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Magic Cauldron Admin</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#09050d;--panel:#120a18;--panel2:#0d0812;--line:rgba(225,181,255,.13);
+  --text:#fff;--muted:#b8a6c2;--purple:#9d43e7;--purple2:#5a1a88;--danger:#d84b68;
+}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif}
+body{
+  background:
+    radial-gradient(circle at 70% 0%,rgba(126,38,182,.15),transparent 28%),
+    linear-gradient(rgba(8,4,12,.93),rgba(8,4,12,.97)),
+    url("https://plcl.me/images/ohwiK.png") center/cover fixed;
+}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+.admin-login{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px
+}
+.login-card{
+  width:min(420px,94vw);background:rgba(18,10,24,.96);border:1px solid var(--line);
+  border-radius:22px;padding:26px;box-shadow:0 30px 70px rgba(0,0,0,.55)
+}
+.brand{text-align:center}.brand-icon{font-size:44px}.brand h1{font-size:24px;margin:8px 0 5px}.brand p{font-size:12px;color:var(--muted);margin:0}
+.form-grid{display:grid;gap:12px;margin-top:20px}
+.field label{display:block;font-size:11px;color:#ccb9d5;margin:0 0 6px 2px;font-weight:700}
+.input{
+  width:100%;height:44px;border-radius:11px;border:1px solid var(--line);
+  background:#0b0710;color:#fff;padding:0 12px;outline:none
+}
+.input:focus{border-color:rgba(191,105,244,.55);box-shadow:0 0 0 3px rgba(152,53,211,.10)}
+.btn{
+  border:0;border-radius:10px;padding:11px 14px;background:linear-gradient(135deg,var(--purple),var(--purple2));
+  color:#fff;font-weight:800
+}
+.btn.secondary{background:#1a1120;border:1px solid var(--line)}
+.btn.danger{background:#42131f;color:#ffbdc8;border:1px solid rgba(255,100,130,.18)}
+.btn.small{padding:7px 9px;font-size:11px}
+.error{color:#ff9bac;font-size:12px;text-align:center;min-height:18px;margin-top:8px}
+.app{display:none;min-height:100vh}
+.sidebar{
+  position:fixed;left:0;top:0;bottom:0;width:220px;background:rgba(13,7,18,.97);
+  border-right:1px solid var(--line);padding:18px 12px;z-index:20
+}
+.side-brand{padding:8px 8px 18px;border-bottom:1px solid var(--line)}
+.side-brand b{font-size:18px}.side-brand span{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.nav{display:grid;gap:7px;margin-top:18px}
+.nav button{
+  text-align:left;border:1px solid transparent;background:transparent;color:#cbb9d4;
+  padding:11px;border-radius:10px;font-weight:700;font-size:13px
+}
+.nav button.active,.nav button:hover{background:rgba(154,59,213,.12);border-color:var(--line);color:#fff}
+.side-bottom{position:absolute;left:12px;right:12px;bottom:16px}
+.main{margin-left:220px;min-height:100vh;padding:20px}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}
+.topbar h2{margin:0;font-size:22px}.topbar .sub{font-size:11px;color:var(--muted);margin-top:4px}
+.panel{
+  background:rgba(17,9,23,.91);border:1px solid var(--line);border-radius:16px;padding:16px;
+  box-shadow:0 16px 40px rgba(0,0,0,.18)
+}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.card{padding:16px;border-radius:15px;background:rgba(150,54,207,.08);border:1px solid var(--line)}
+.card .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.card .value{font-size:26px;font-weight:900;margin-top:8px}
+.toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.toolbar-left,.toolbar-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search{height:38px;min-width:220px}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;min-width:760px;background:rgba(7,4,10,.38)}
+th,td{padding:11px 10px;text-align:left;border-bottom:1px solid rgba(230,190,255,.08);font-size:12px;white-space:nowrap}
+th{font-size:10px;color:#bdaac7;text-transform:uppercase;letter-spacing:.5px;background:#100817}
+td{color:#eee}
+.badge{display:inline-block;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:800}
+.badge.on{background:rgba(67,188,117,.13);color:#8ae9ad}
+.badge.off{background:rgba(216,75,104,.13);color:#ff9bad}
+.badge.wait{background:rgba(216,163,75,.13);color:#ffd08a}
+.badge.done{background:rgba(69,175,126,.13);color:#96e9b7}
+.actions{display:flex;gap:5px}
+.modal{
+  position:fixed;inset:0;z-index:50;background:rgba(4,2,7,.74);backdrop-filter:blur(6px);
+  display:none;align-items:center;justify-content:center;padding:18px
+}
+.modal.show{display:flex}
+.modal-card{
+  width:min(520px,96vw);max-height:92vh;overflow:auto;background:#120a18;border:1px solid var(--line);
+  border-radius:18px;padding:18px;box-shadow:0 28px 80px rgba(0,0,0,.55)
+}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.modal-head h3{margin:0}.x{background:transparent;border:0;color:#baa6c4;font-size:22px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.checkline{display:flex;align-items:center;gap:8px;color:#d8c9df;font-size:12px}
+.note{font-size:11px;color:var(--muted);line-height:1.5}
+.section-title{font-size:14px;margin:0 0 12px}
+.empty{padding:26px;text-align:center;color:var(--muted);font-size:12px}
+.row-stack{display:grid;gap:12px}
+.history-mini{display:grid;gap:8px}
+.history-item{display:flex;justify-content:space-between;gap:10px;padding:10px;border-radius:11px;background:#0d0712;border:1px solid rgba(230,190,255,.07)}
+.history-item b{font-size:12px}.history-item span{font-size:10px;color:var(--muted)}
+.mobile-menu{display:none}
+@media(max-width:900px){
+  .sidebar{transform:translateX(-100%);transition:.2s}.sidebar.open{transform:translateX(0)}
+  .main{margin-left:0;padding:14px}.mobile-menu{display:inline-block}
+  .cards{grid-template-columns:1fr 1fr}
+}
+@media(max-width:560px){
+  .cards{grid-template-columns:1fr}.two{grid-template-columns:1fr}.topbar h2{font-size:19px}
+  .main{padding:10px}.panel{padding:12px}.search{min-width:160px;width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="admin-login" id="adminLogin">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-icon">🧙‍♂️</div>
+      <h1>ADMIN PANEL</h1>
+      <p>Magic Cauldron Control Center</p>
+    </div>
+    <form class="form-grid" id="adminLoginForm">
+      <div class="field">
+        <label>ADMIN ID</label>
+        <input class="input" id="adminIdInput" required>
+      </div>
+      <div class="field">
+        <label>PASSWORD</label>
+        <input class="input" id="adminPassInput" type="password" required>
+      </div>
+      <button class="btn" type="submit">LOGIN ADMIN</button>
+    </form>
+    <div class="error" id="adminLoginError"></div>
+  </div>
+</div>
+
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-brand"><b>🔮 MAGIC CAULDRON</b><span>Admin Control Panel</span></div>
+    <div class="nav">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="members">Member & Login</button>
+      <button data-tab="prizes">Hadiah</button>
+      <button data-tab="history">Riwayat</button>
+      <button data-tab="settings">Pengaturan</button>
+    </div>
+    <div class="side-bottom"><button class="btn secondary" style="width:100%" id="adminLogoutBtn">LOGOUT</button></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <button class="btn secondary small mobile-menu" id="menuBtn">☰ MENU</button>
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="sub" id="pageSub">Ringkasan permainan dan member.</div>
+      </div>
+      <div class="note">Data tersimpan pada browser yang sama</div>
+    </div>
+
+    <section id="tab-dashboard" class="tab">
+      <div class="cards">
+        <div class="card"><div class="label">Total Member</div><div class="value" id="statMembers">0</div></div>
+        <div class="card"><div class="label">Member Aktif</div><div class="value" id="statActive">0</div></div>
+        <div class="card"><div class="label">Sisa Kesempatan</div><div class="value" id="statChances">0</div></div>
+        <div class="card"><div class="label">Total Permainan</div><div class="value" id="statPlays">0</div></div>
+      </div>
+      <div class="panel">
+        <h3 class="section-title">Riwayat Terbaru</h3>
+        <div class="history-mini" id="recentHistory"></div>
+      </div>
+    </section>
+
+    <section id="tab-members" class="tab hidden">
+      <div class="panel">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <input class="input search" id="memberSearch" placeholder="Cari User ID...">
+          </div>
+          <div class="toolbar-right">
+            <button class="btn" id="addMemberBtn">+ TAMBAH MEMBER</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>User ID</th><th>Password</th><th>Kesempatan</th><th>Hadiah Berikutnya</th><th>Status</th><th>Aksi</th>
+            </tr></thead>
+            <tbody id="memberRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-prizes" class="tab hidden">
+      <div class="panel">
+        <div class="toolbar">
+          <div class="note">Bobot menentukan peluang hadiah acak. Admin juga dapat menentukan hadiah berikutnya untuk member tertentu.</div>
+          <button class="btn" id="addPrizeBtn">+ TAMBAH HADIAH</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Nama Hadiah</th><th>Keterangan/Nilai</th><th>Bobot</th><th>Stok</th><th>Status</th><th>Aksi</th>
+            </tr></thead>
+            <tbody id="prizeRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-history" class="tab hidden">
+      <div class="panel">
+        <div class="toolbar">
+          <div class="toolbar-left"><input class="input search" id="historySearch" placeholder="Cari User ID / hadiah..."></div>
+          <div class="toolbar-right"><button class="btn danger" id="clearHistoryBtn">HAPUS RIWAYAT</button></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Waktu</th><th>Member</th><th>Botol</th><th>Hadiah</th><th>Keterangan</th><th>Status</th><th>Aksi</th>
+            </tr></thead>
+            <tbody id="historyRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab hidden">
+      <div class="row-stack">
+        <div class="panel">
+          <h3 class="section-title">Login Admin</h3>
+          <form class="form-grid" id="adminSettingsForm">
+            <div class="two">
+              <div class="field"><label>ADMIN ID</label><input class="input" id="setAdminId" required></div>
+              <div class="field"><label>PASSWORD BARU</label><input class="input" id="setAdminPass" type="password" placeholder="Kosongkan jika tidak diubah"></div>
+            </div>
+            <div><button class="btn" type="submit">SIMPAN LOGIN ADMIN</button></div>
+          </form>
+        </div>
+        <div class="panel">
+          <h3 class="section-title">Reset Data</h3>
+          <div class="note">Mengembalikan member, hadiah, riwayat, dan login admin ke data awal.</div>
+          <div style="margin-top:12px"><button class="btn danger" id="resetDbBtn">RESET SEMUA DATA</button></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Member Modal -->
+<div class="modal" id="memberModal">
+  <div class="modal-card">
+    <div class="modal-head"><h3 id="memberModalTitle">Tambah Member</h3><button class="x" data-close="memberModal">×</button></div>
+    <form class="form-grid" id="memberForm">
+      <input type="hidden" id="memberOriginalId">
+      <div class="two">
+        <div class="field"><label>USER ID</label><input class="input" id="memberId" maxlength="40" required></div>
+        <div class="field"><label>PASSWORD</label><input class="input" id="memberPassword" maxlength="80" required></div>
+      </div>
+      <div class="two">
+        <div class="field"><label>KESEMPATAN BERMAIN</label><input class="input" id="memberChances" type="number" min="0" value="1" required></div>
+        <div class="field">
+          <label>HADIAH BERIKUTNYA</label>
+          <select class="input" id="memberNextPrize"></select>
+        </div>
+      </div>
+      <label class="checkline"><input type="checkbox" id="memberActive" checked> Akun aktif dan bisa login</label>
+      <div class="note">Hadiah berikutnya hanya dipakai 1x pada permainan selanjutnya, lalu kembali ke hadiah acak.</div>
+      <button class="btn" type="submit">SIMPAN MEMBER</button>
+    </form>
+  </div>
+</div>
+
+<!-- Prize Modal -->
+<div class="modal" id="prizeModal">
+  <div class="modal-card">
+    <div class="modal-head"><h3 id="prizeModalTitle">Tambah Hadiah</h3><button class="x" data-close="prizeModal">×</button></div>
+    <form class="form-grid" id="prizeForm">
+      <input type="hidden" id="prizeEditId">
+      <div class="field"><label>NAMA HADIAH</label><input class="input" id="prizeName" maxlength="60" required></div>
+      <div class="field"><label>KETERANGAN / NILAI HADIAH</label><input class="input" id="prizeValue" maxlength="120" placeholder="Contoh: Bonus Credit Rp10.000"></div>
+      <div class="two">
+        <div class="field"><label>BOBOT PELUANG</label><input class="input" id="prizeWeight" type="number" min="0" step="0.1" value="1" required></div>
+        <div class="field"><label>STOK (-1 = TANPA BATAS)</label><input class="input" id="prizeStock" type="number" min="-1" value="-1" required></div>
+      </div>
+      <label class="checkline"><input type="checkbox" id="prizeActive" checked> Hadiah aktif</label>
+      <button class="btn" type="submit">SIMPAN HADIAH</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(()=>{
+"use strict";
+const STORAGE_KEY="magicCauldronDB_v1";
+const ADMIN_SESSION="magicCauldronAdminSession_v1";
+
+const $=id=>document.getElementById(id);
+const adminLogin=$("adminLogin"), app=$("app"), sidebar=$("sidebar");
+const pageTitle=$("pageTitle"), pageSub=$("pageSub");
+let activeTab="dashboard";
+
+function defaultDB(){
+  return {
+    version:1,
+    admin:{id:"admin",password:"CERIA123"},
+    members:[{id:"DEMO",password:"123456",chances:3,active:true,nextPrizeId:""}],
+    prizes:[
+      {id:"p1",name:"BONUS 5K",value:"Bonus Credit Rp5.000",weight:45,stock:-1,active:true},
+      {id:"p2",name:"BONUS 10K",value:"Bonus Credit Rp10.000",weight:30,stock:-1,active:true},
+      {id:"p3",name:"BONUS 20K",value:"Bonus Credit Rp20.000",weight:15,stock:-1,active:true},
+      {id:"p4",name:"BONUS 50K",value:"Bonus Credit Rp50.000",weight:8,stock:-1,active:true},
+      {id:"p5",name:"JACKPOT 100K",value:"Bonus Credit Rp100.000",weight:2,stock:-1,active:true}
+    ],
+    history:[]
+  };
+}
+function loadDB(){
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if(!raw){const d=defaultDB();saveDB(d);return d}
+    const d=JSON.parse(raw);
+    if(!d.admin||!d.members||!d.prizes||!d.history) throw 0;
+    return d;
+  }catch(e){const d=defaultDB();saveDB(d);return d}
+}
+function saveDB(db){localStorage.setItem(STORAGE_KEY,JSON.stringify(db))}
+function esc(v){return String(v??"").replace(/[&<>"']/g,s=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[s]))}
+function fmtTime(iso){
+  try{return new Intl.DateTimeFormat("id-ID",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso))}
+  catch(e){return iso}
+}
+function prizeName(db,id){
+  if(!id)return "-";
+  const p=db.prizes.find(x=>x.id===id); return p?p.name:"-";
+}
+function openModal(id){$(id).classList.add("show")}
+function closeModal(id){$(id).classList.remove("show")}
+
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
+document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id)}));
+
+function renderAll(){
+  renderDashboard();renderMembers();renderPrizes();renderHistory();renderSettings();
+}
+function showApp(){
+  adminLogin.style.display="none";app.style.display="block";renderAll();switchTab(activeTab)
+}
+function logoutAdmin(){sessionStorage.removeItem(ADMIN_SESSION);app.style.display="none";adminLogin.style.display="flex";$("adminPassInput").value=""}
+
+$("adminLoginForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  const db=loadDB();
+  if($("adminIdInput").value.trim()===db.admin.id && $("adminPassInput").value===db.admin.password){
+    sessionStorage.setItem(ADMIN_SESSION,"1");$("adminLoginError").textContent="";showApp();
+  }else $("adminLoginError").textContent="Admin ID atau password salah.";
+});
+$("adminLogoutBtn").onclick=logoutAdmin;
+$("menuBtn").onclick=()=>sidebar.classList.toggle("open");
+
+const tabMeta={
+  dashboard:["Dashboard","Ringkasan permainan dan member."],
+  members:["Member & Login","Atur User ID, password, kesempatan bermain, dan hadiah berikutnya."],
+  prizes:["Hadiah","Atur daftar hadiah, bobot peluang, stok, dan status."],
+  history:["Riwayat","Lihat hasil permainan dan tandai hadiah yang sudah diproses."],
+  settings:["Pengaturan","Ubah login admin atau reset data."]
+};
+function switchTab(name){
+  activeTab=name;
+  document.querySelectorAll(".tab").forEach(t=>t.classList.add("hidden"));
+  $("tab-"+name).classList.remove("hidden");
+  document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
+  pageTitle.textContent=tabMeta[name][0];pageSub.textContent=tabMeta[name][1];
+  sidebar.classList.remove("open");
+}
+document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+
+function renderDashboard(){
+  const db=loadDB();
+  $("statMembers").textContent=db.members.length;
+  $("statActive").textContent=db.members.filter(m=>m.active).length;
+  $("statChances").textContent=db.members.reduce((s,m)=>s+Math.max(0,Number(m.chances)||0),0);
+  $("statPlays").textContent=db.history.length;
+  const recent=db.history.slice(0,6);
+  $("recentHistory").innerHTML=recent.length?recent.map(h=>`
+    <div class="history-item">
+      <div><b>${esc(h.memberId)} — ${esc(h.prizeName)}</b><br><span>${esc(h.prizeValue||"")}</span></div>
+      <span>${fmtTime(h.time)}</span>
+    </div>`).join(""):`<div class="empty">Belum ada riwayat permainan.</div>`;
+}
+
+function fillPrizeSelect(selected=""){
+  const db=loadDB();
+  $("memberNextPrize").innerHTML=`<option value="">Acak / Tidak ditentukan</option>`+
+    db.prizes.filter(p=>p.active).map(p=>`<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}</option>`).join("");
+}
+function renderMembers(){
+  const db=loadDB(), q=$("memberSearch").value.trim().toLowerCase();
+  const rows=db.members.filter(m=>!q||m.id.toLowerCase().includes(q));
+  $("memberRows").innerHTML=rows.length?rows.map(m=>`
+    <tr>
+      <td><b>${esc(m.id)}</b></td>
+      <td>••••••••</td>
+      <td><b>${Number(m.chances)||0}</b></td>
+      <td>${esc(prizeName(db,m.nextPrizeId))}</td>
+      <td><span class="badge ${m.active?"on":"off"}">${m.active?"AKTIF":"NONAKTIF"}</span></td>
+      <td><div class="actions">
+        <button class="btn small" data-member-edit="${esc(m.id)}">EDIT</button>
+        <button class="btn secondary small" data-member-addchance="${esc(m.id)}">+1</button>
+        <button class="btn danger small" data-member-delete="${esc(m.id)}">HAPUS</button>
+      </div></td>
+    </tr>`).join(""):`<tr><td colspan="6" class="empty">Member tidak ditemukan.</td></tr>`;
+  document.querySelectorAll("[data-member-edit]").forEach(b=>b.onclick=()=>editMember(b.dataset.memberEdit));
+  document.querySelectorAll("[data-member-addchance]").forEach(b=>b.onclick=()=>addChance(b.dataset.memberAddchance));
+  document.querySelectorAll("[data-member-delete]").forEach(b=>b.onclick=()=>deleteMember(b.dataset.memberDelete));
+}
+$("memberSearch").addEventListener("input",renderMembers);
+$("addMemberBtn").onclick=()=>{
+  $("memberModalTitle").textContent="Tambah Member";$("memberOriginalId").value="";
+  $("memberId").value="";$("memberPassword").value="";$("memberChances").value=1;$("memberActive").checked=true;
+  fillPrizeSelect("");openModal("memberModal");
+};
+function editMember(id){
+  const db=loadDB(),m=db.members.find(x=>x.id===id);if(!m)return;
+  $("memberModalTitle").textContent="Edit Member";$("memberOriginalId").value=m.id;
+  $("memberId").value=m.id;$("memberPassword").value=m.password;$("memberChances").value=m.chances;$("memberActive").checked=!!m.active;
+  fillPrizeSelect(m.nextPrizeId||"");openModal("memberModal");
+}
+function addChance(id){
+  const db=loadDB(),m=db.members.find(x=>x.id===id);if(!m)return;m.chances=(Number(m.chances)||0)+1;saveDB(db);renderAll();
+}
+function deleteMember(id){
+  if(!confirm(`Hapus member ${id}?`))return;
+  const db=loadDB();db.members=db.members.filter(x=>x.id!==id);saveDB(db);renderAll();
+}
+$("memberForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  const db=loadDB(),original=$("memberOriginalId").value,id=$("memberId").value.trim();
+  if(!id)return;
+  const duplicate=db.members.find(m=>m.id.toLowerCase()===id.toLowerCase() && m.id!==original);
+  if(duplicate){alert("User ID sudah digunakan.");return}
+  const data={id,password:$("memberPassword").value,chances:Math.max(0,Number($("memberChances").value)||0),active:$("memberActive").checked,nextPrizeId:$("memberNextPrize").value};
+  if(original){
+    const i=db.members.findIndex(m=>m.id===original);if(i>=0)db.members[i]=data;
+  }else db.members.push(data);
+  saveDB(db);closeModal("memberModal");renderAll();
+});
+
+function renderPrizes(){
+  const db=loadDB();
+  $("prizeRows").innerHTML=db.prizes.length?db.prizes.map(p=>`
+    <tr>
+      <td><b>${esc(p.name)}</b></td><td>${esc(p.value||"-")}</td><td>${Number(p.weight)||0}</td>
+      <td>${Number(p.stock)===-1?"∞":Number(p.stock)||0}</td>
+      <td><span class="badge ${p.active?"on":"off"}">${p.active?"AKTIF":"NONAKTIF"}</span></td>
+      <td><div class="actions">
+        <button class="btn small" data-prize-edit="${esc(p.id)}">EDIT</button>
+        <button class="btn danger small" data-prize-delete="${esc(p.id)}">HAPUS</button>
+      </div></td>
+    </tr>`).join(""):`<tr><td colspan="6" class="empty">Belum ada hadiah.</td></tr>`;
+  document.querySelectorAll("[data-prize-edit]").forEach(b=>b.onclick=()=>editPrize(b.dataset.prizeEdit));
+  document.querySelectorAll("[data-prize-delete]").forEach(b=>b.onclick=()=>deletePrize(b.dataset.prizeDelete));
+}
+$("addPrizeBtn").onclick=()=>{
+  $("prizeModalTitle").textContent="Tambah Hadiah";$("prizeEditId").value="";
+  $("prizeName").value="";$("prizeValue").value="";$("prizeWeight").value=1;$("prizeStock").value=-1;$("prizeActive").checked=true;
+  openModal("prizeModal");
+};
+function editPrize(id){
+  const db=loadDB(),p=db.prizes.find(x=>x.id===id);if(!p)return;
+  $("prizeModalTitle").textContent="Edit Hadiah";$("prizeEditId").value=p.id;$("prizeName").value=p.name;$("prizeValue").value=p.value||"";
+  $("prizeWeight").value=p.weight;$("prizeStock").value=p.stock;$("prizeActive").checked=!!p.active;openModal("prizeModal");
+}
+function deletePrize(id){
+  if(!confirm("Hapus hadiah ini?"))return;
+  const db=loadDB();db.prizes=db.prizes.filter(x=>x.id!==id);db.members.forEach(m=>{if(m.nextPrizeId===id)m.nextPrizeId=""});saveDB(db);renderAll();
+}
+$("prizeForm").addEventListener("submit",e=>{
+  e.preventDefault();const db=loadDB(),id=$("prizeEditId").value;
+  const data={id:id||("p_"+Date.now()),name:$("prizeName").value.trim(),value:$("prizeValue").value.trim(),weight:Math.max(0,Number($("prizeWeight").value)||0),stock:Math.max(-1,Number($("prizeStock").value)||0),active:$("prizeActive").checked};
+  if(id){const i=db.prizes.findIndex(p=>p.id===id);if(i>=0)db.prizes[i]=data}else db.prizes.push(data);
+  saveDB(db);closeModal("prizeModal");renderAll();
+});
+
+function renderHistory(){
+  const db=loadDB(),q=$("historySearch").value.trim().toLowerCase();
+  const rows=db.history.filter(h=>!q||String(h.memberId).toLowerCase().includes(q)||String(h.prizeName).toLowerCase().includes(q));
+  $("historyRows").innerHTML=rows.length?rows.map(h=>`
+    <tr>
+      <td>${fmtTime(h.time)}</td><td><b>${esc(h.memberId)}</b></td><td>${esc(h.bottle||"-")}</td>
+      <td>${esc(h.prizeName)}</td><td>${esc(h.prizeValue||"-")}</td>
+      <td><span class="badge ${h.status==="SELESAI"?"done":"wait"}">${esc(h.status||"BELUM DIPROSES")}</span></td>
+      <td><button class="btn secondary small" data-history-toggle="${esc(h.id)}">${h.status==="SELESAI"?"BATAL SELESAI":"TANDAI SELESAI"}</button></td>
+    </tr>`).join(""):`<tr><td colspan="7" class="empty">Belum ada riwayat.</td></tr>`;
+  document.querySelectorAll("[data-history-toggle]").forEach(b=>b.onclick=()=>toggleHistory(b.dataset.historyToggle));
+}
+$("historySearch").addEventListener("input",renderHistory);
+function toggleHistory(id){
+  const db=loadDB(),h=db.history.find(x=>x.id===id);if(!h)return;h.status=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";saveDB(db);renderAll();
+}
+$("clearHistoryBtn").onclick=()=>{if(confirm("Hapus seluruh riwayat permainan?")){const db=loadDB();db.history=[];saveDB(db);renderAll()}};
+
+function renderSettings(){
+  const db=loadDB();$("setAdminId").value=db.admin.id;$("setAdminPass").value="";
+}
+$("adminSettingsForm").addEventListener("submit",e=>{
+  e.preventDefault();const db=loadDB(),id=$("setAdminId").value.trim(),pass=$("setAdminPass").value;
+  if(!id)return;db.admin.id=id;if(pass)db.admin.password=pass;saveDB(db);$("setAdminPass").value="";alert("Login admin berhasil diperbarui.");
+});
+$("resetDbBtn").onclick=()=>{
+  if(!confirm("RESET SEMUA DATA? Tindakan ini tidak bisa dibatalkan."))return;
+  saveDB(defaultDB());renderAll();alert("Data sudah direset.");
+};
+
+window.addEventListener("storage",e=>{if(e.key===STORAGE_KEY && sessionStorage.getItem(ADMIN_SESSION)==="1")renderAll()});
+
+if(sessionStorage.getItem(ADMIN_SESSION)==="1")showApp();
+})();
+</script>
+</body>
+</html>
