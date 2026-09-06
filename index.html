@@ -96,7 +96,6 @@ td{color:#eee}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .checkline{display:flex;align-items:center;gap:8px;color:#d8c9df;font-size:12px}
 .note{font-size:11px;color:var(--muted);line-height:1.5}
-#syncInfo{color:#8fe9ad;font-weight:800;letter-spacing:.3px}
 .section-title{font-size:14px;margin:0 0 12px}
 .empty{padding:26px;text-align:center;color:var(--muted);font-size:12px}
 .row-stack{display:grid;gap:12px}
@@ -122,7 +121,7 @@ td{color:#eee}
     <div class="brand">
       <div class="brand-icon">🧙‍♂️</div>
       <h1>ADMIN PANEL</h1>
-      <p>Magic Cauldron Control Center</p>
+      <p>Magic Cauldron Online Control Center</p>
     </div>
     <form class="form-grid" id="adminLoginForm">
       <div class="field">
@@ -159,7 +158,7 @@ td{color:#eee}
         <h2 id="pageTitle">Dashboard</h2>
         <div class="sub" id="pageSub">Ringkasan permainan dan member.</div>
       </div>
-      <div class="note" id="syncInfo">● TERHUBUNG</div>
+      <div class="note" id="syncInfo">● ONLINE • SUPABASE</div>
     </div>
 
     <section id="tab-dashboard" class="tab">
@@ -244,7 +243,7 @@ td{color:#eee}
         </div>
         <div class="panel">
           <h3 class="section-title">Reset Data</h3>
-          <div class="note">Mengembalikan member, hadiah, riwayat, dan login admin ke data awal. Panel admin dan game akan sinkron otomatis selama berada pada domain/origin yang sama.</div>
+          <div class="note">Mengembalikan member, hadiah, riwayat, dan login admin ke data awal.</div>
           <div style="margin-top:12px"><button class="btn danger" id="resetDbBtn">RESET SEMUA DATA</button></div>
         </div>
       </div>
@@ -297,305 +296,540 @@ td{color:#eee}
 <script>
 (()=>{
 "use strict";
-const STORAGE_KEY="magicCauldronDB_v1";
-const ADMIN_SESSION="magicCauldronAdminSession_v1";
 
-const SYNC_CHANNEL_NAME = "magicCauldronSync_v1";
-  const syncChannel = ("BroadcastChannel" in window) ? new BroadcastChannel(SYNC_CHANNEL_NAME) : null;
-  let lastDbSnapshot = localStorage.getItem(STORAGE_KEY) || "";
-
-  function announceDbUpdate(db, source="unknown"){
-    try{
-      lastDbSnapshot = JSON.stringify(db);
-      if(syncChannel){
-        syncChannel.postMessage({
-          type:"db-updated",
-          source,
-          revision:Number(db.revision || 0),
-          updatedAt:db.updatedAt || new Date().toISOString()
-        });
-      }
-    }catch(e){}
-  }
-
-  function watchDbChanges(onChange){
-    window.addEventListener("storage",(e)=>{
-      if(e.key === STORAGE_KEY){
-        lastDbSnapshot = e.newValue || "";
-        onChange("storage");
-      }
-    });
-
-    if(syncChannel){
-      syncChannel.addEventListener("message",(e)=>{
-        if(e.data && e.data.type === "db-updated"){
-          onChange("broadcast");
-        }
-      });
-    }
-
-    /* Fallback polling: memastikan perubahan tetap terbaca
-       walau browser tidak memicu storage/BroadcastChannel dengan sempurna. */
-    setInterval(()=>{
-      const current = localStorage.getItem(STORAGE_KEY) || "";
-      if(current !== lastDbSnapshot){
-        lastDbSnapshot = current;
-        onChange("poll");
-      }
-    }, 900);
-  }
-
+/* =========================================================
+   ONLINE DATABASE - SUPABASE
+   ISI 2 NILAI DI BAWAH dari Supabase:
+   Project Settings > API
+   ========================================================= */
+const SUPABASE_URL = "PASTE_SUPABASE_PROJECT_URL_HERE";
+const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY_HERE";
+const ADMIN_SESSION = "magicCauldronAdminToken_online_v1";
 
 const $=id=>document.getElementById(id);
 const adminLogin=$("adminLogin"), app=$("app"), sidebar=$("sidebar");
 const pageTitle=$("pageTitle"), pageSub=$("pageSub");
-let activeTab="dashboard";
 
-function defaultDB(){
-  return {
-    version:1,
-    revision:1,
-    updatedAt:new Date().toISOString(),
-    admin:{id:"admin",password:"CERIA123"},
-    members:[{id:"DEMO",password:"123456",chances:3,active:true,nextPrizeId:""}],
-    prizes:[
-      {id:"p1",name:"BONUS 5K",value:"Bonus Credit Rp5.000",weight:45,stock:-1,active:true},
-      {id:"p2",name:"BONUS 10K",value:"Bonus Credit Rp10.000",weight:30,stock:-1,active:true},
-      {id:"p3",name:"BONUS 20K",value:"Bonus Credit Rp20.000",weight:15,stock:-1,active:true},
-      {id:"p4",name:"BONUS 50K",value:"Bonus Credit Rp50.000",weight:8,stock:-1,active:true},
-      {id:"p5",name:"JACKPOT 100K",value:"Bonus Credit Rp100.000",weight:2,stock:-1,active:true}
-    ],
-    history:[]
-  };
+let activeTab="dashboard";
+let adminToken=sessionStorage.getItem(ADMIN_SESSION)||"";
+let members=[];
+let prizes=[];
+let history=[];
+let dashboard={};
+let refreshBusy=false;
+let pollTimer=0;
+
+function configReady(){
+  return /^https:\/\/.+\.supabase\.co\/?$/.test(SUPABASE_URL)
+    && !SUPABASE_ANON_KEY.includes("PASTE_")
+    && SUPABASE_ANON_KEY.length>20;
 }
-function loadDB(){
-  try{
-    const raw=localStorage.getItem(STORAGE_KEY);
-    if(!raw){const d=defaultDB();saveDB(d);return d}
-    const d=JSON.parse(raw);
-    if(!d.admin||!d.members||!d.prizes||!d.history) throw 0;
-    return d;
-  }catch(e){const d=defaultDB();saveDB(d);return d}
+
+function esc(v){
+  return String(v??"").replace(/[&<>"']/g,s=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[s]));
 }
-function saveDB(db,source="admin"){
-  db.revision=Number(db.revision||0)+1;
-  db.updatedAt=new Date().toISOString();
-  localStorage.setItem(STORAGE_KEY,JSON.stringify(db));
-  announceDbUpdate(db,source);
-}
-function esc(v){return String(v??"").replace(/[&<>"']/g,s=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[s]))}
+
 function fmtTime(iso){
-  try{return new Intl.DateTimeFormat("id-ID",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso))}
-  catch(e){return iso}
+  try{
+    return new Intl.DateTimeFormat("id-ID",{
+      dateStyle:"short",timeStyle:"short"
+    }).format(new Date(iso));
+  }catch(e){return iso||"-"}
 }
-function prizeName(db,id){
-  if(!id)return "-";
-  const p=db.prizes.find(x=>x.id===id); return p?p.name:"-";
+
+function friendlyError(err){
+  const raw=String(err?.message||err||"");
+  const map=[
+    ["LOGIN_INVALID","Admin ID atau password salah."],
+    ["ADMIN_SESSION_INVALID","Sesi admin berakhir. Silakan login kembali."],
+    ["USER_ID_ALREADY_EXISTS","User ID sudah digunakan."],
+    ["PASSWORD_REQUIRED","Password wajib diisi untuk member baru."],
+    ["MEMBER_NOT_FOUND","Member tidak ditemukan."],
+    ["PRIZE_NOT_FOUND","Hadiah tidak ditemukan."],
+    ["ADMIN_USERNAME_ALREADY_EXISTS","Admin ID sudah digunakan."],
+    ["Failed to fetch","Tidak dapat terhubung ke server. Cek internet / konfigurasi Supabase."]
+  ];
+  for(const [key,msg] of map) if(raw.includes(key)) return msg;
+  return raw||"Terjadi kesalahan server.";
 }
+
+async function rpc(functionName,params={}){
+  if(!configReady()){
+    throw new Error("Supabase belum dikonfigurasi. Isi SUPABASE_URL dan SUPABASE_ANON_KEY.");
+  }
+
+  const res=await fetch(
+    `${SUPABASE_URL.replace(/\/$/,"")}/rest/v1/rpc/${functionName}`,
+    {
+      method:"POST",
+      headers:{
+        "apikey":SUPABASE_ANON_KEY,
+        "Authorization":`Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify(params)
+    }
+  );
+
+  const text=await res.text();
+  let data=null;
+  if(text){
+    try{data=JSON.parse(text)}catch(e){data=text}
+  }
+
+  if(!res.ok){
+    const msg=(data&&typeof data==="object"&&(data.message||data.details||data.hint))
+      ||text||`HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
 function openModal(id){$(id).classList.add("show")}
 function closeModal(id){$(id).classList.remove("show")}
 
-document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
-document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id)}));
-
-function renderAll(){
-  renderDashboard();renderMembers();renderPrizes();renderHistory();renderSettings();
-  updateSyncInfo();
-}
-function showApp(){
-  adminLogin.style.display="none";app.style.display="block";renderAll();switchTab(activeTab)
-}
-function logoutAdmin(){sessionStorage.removeItem(ADMIN_SESSION);app.style.display="none";adminLogin.style.display="flex";$("adminPassInput").value=""}
-
-$("adminLoginForm").addEventListener("submit",e=>{
-  e.preventDefault();
-  const db=loadDB();
-  if($("adminIdInput").value.trim()===db.admin.id && $("adminPassInput").value===db.admin.password){
-    sessionStorage.setItem(ADMIN_SESSION,"1");$("adminLoginError").textContent="";showApp();
-  }else $("adminLoginError").textContent="Admin ID atau password salah.";
-});
-$("adminLogoutBtn").onclick=logoutAdmin;
-$("menuBtn").onclick=()=>sidebar.classList.toggle("open");
+document.querySelectorAll("[data-close]").forEach(
+  b=>b.onclick=()=>closeModal(b.dataset.close)
+);
+document.querySelectorAll(".modal").forEach(
+  m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id)})
+);
 
 const tabMeta={
-  dashboard:["Dashboard","Ringkasan permainan dan member."],
+  dashboard:["Dashboard","Ringkasan permainan dan member online."],
   members:["Member & Login","Atur User ID, password, kesempatan bermain, dan hadiah berikutnya."],
-  prizes:["Hadiah","Atur daftar hadiah, bobot peluang, stok, dan status."],
-  history:["Riwayat","Lihat hasil permainan dan tandai hadiah yang sudah diproses."],
-  settings:["Pengaturan","Ubah login admin atau reset data."]
+  prizes:["Hadiah","Atur daftar hadiah, peluang, stok, dan status."],
+  history:["Riwayat","Hasil permainan member dari semua perangkat."],
+  settings:["Pengaturan","Ubah login admin atau reset data game."]
 };
+
 function switchTab(name){
   activeTab=name;
   document.querySelectorAll(".tab").forEach(t=>t.classList.add("hidden"));
   $("tab-"+name).classList.remove("hidden");
-  document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
-  pageTitle.textContent=tabMeta[name][0];pageSub.textContent=tabMeta[name][1];
+  document.querySelectorAll(".nav button").forEach(
+    b=>b.classList.toggle("active",b.dataset.tab===name)
+  );
+  pageTitle.textContent=tabMeta[name][0];
+  pageSub.textContent=tabMeta[name][1];
   sidebar.classList.remove("open");
 }
-document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+document.querySelectorAll(".nav button").forEach(
+  b=>b.onclick=()=>switchTab(b.dataset.tab)
+);
 
 function renderDashboard(){
-  const db=loadDB();
-  $("statMembers").textContent=db.members.length;
-  $("statActive").textContent=db.members.filter(m=>m.active).length;
-  $("statChances").textContent=db.members.reduce((s,m)=>s+Math.max(0,Number(m.chances)||0),0);
-  $("statPlays").textContent=db.history.length;
-  const recent=db.history.slice(0,6);
-  $("recentHistory").innerHTML=recent.length?recent.map(h=>`
-    <div class="history-item">
-      <div><b>${esc(h.memberId)} — ${esc(h.prizeName)}</b><br><span>${esc(h.prizeValue||"")}</span></div>
-      <span>${fmtTime(h.time)}</span>
-    </div>`).join(""):`<div class="empty">Belum ada riwayat permainan.</div>`;
+  $("statMembers").textContent=Number(dashboard.total_members||0);
+  $("statActive").textContent=Number(dashboard.active_members||0);
+  $("statChances").textContent=Number(dashboard.total_chances||0);
+  $("statPlays").textContent=Number(dashboard.total_plays||0);
+
+  const recent=history.slice(0,6);
+  $("recentHistory").innerHTML=recent.length
+    ?recent.map(h=>`
+      <div class="history-item">
+        <div>
+          <b>${esc(h.member_user_id)} — ${esc(h.prize_name)}</b><br>
+          <span>${esc(h.prize_value||"")}</span>
+        </div>
+        <span>${fmtTime(h.time)}</span>
+      </div>`).join("")
+    :`<div class="empty">Belum ada riwayat permainan.</div>`;
 }
 
 function fillPrizeSelect(selected=""){
-  const db=loadDB();
-  $("memberNextPrize").innerHTML=`<option value="">Acak / Tidak ditentukan</option>`+
-    db.prizes.filter(p=>p.active).map(p=>`<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}</option>`).join("");
+  $("memberNextPrize").innerHTML=
+    `<option value="">Acak / Tidak ditentukan</option>`+
+    prizes.filter(p=>p.active).map(p=>
+      `<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}</option>`
+    ).join("");
 }
+
 function renderMembers(){
-  const db=loadDB(), q=$("memberSearch").value.trim().toLowerCase();
-  const rows=db.members.filter(m=>!q||m.id.toLowerCase().includes(q));
-  $("memberRows").innerHTML=rows.length?rows.map(m=>`
-    <tr>
-      <td><b>${esc(m.id)}</b></td>
-      <td>••••••••</td>
-      <td><b>${Number(m.chances)||0}</b></td>
-      <td>${esc(prizeName(db,m.nextPrizeId))}</td>
-      <td><span class="badge ${m.active?"on":"off"}">${m.active?"AKTIF":"NONAKTIF"}</span></td>
-      <td><div class="actions">
-        <button class="btn small" data-member-edit="${esc(m.id)}">EDIT</button>
-        <button class="btn secondary small" data-member-addchance="${esc(m.id)}">+1</button>
-        <button class="btn danger small" data-member-delete="${esc(m.id)}">HAPUS</button>
-      </div></td>
-    </tr>`).join(""):`<tr><td colspan="6" class="empty">Member tidak ditemukan.</td></tr>`;
-  document.querySelectorAll("[data-member-edit]").forEach(b=>b.onclick=()=>editMember(b.dataset.memberEdit));
-  document.querySelectorAll("[data-member-addchance]").forEach(b=>b.onclick=()=>addChance(b.dataset.memberAddchance));
-  document.querySelectorAll("[data-member-delete]").forEach(b=>b.onclick=()=>deleteMember(b.dataset.memberDelete));
+  const q=$("memberSearch").value.trim().toLowerCase();
+  const rows=members.filter(m=>!q||String(m.user_id).toLowerCase().includes(q));
+
+  $("memberRows").innerHTML=rows.length
+    ?rows.map(m=>`
+      <tr>
+        <td><b>${esc(m.user_id)}</b></td>
+        <td>••••••••</td>
+        <td><b>${Number(m.chances)||0}</b></td>
+        <td>${esc(m.next_prize_name||"-")}</td>
+        <td><span class="badge ${m.active?"on":"off"}">${m.active?"AKTIF":"NONAKTIF"}</span></td>
+        <td><div class="actions">
+          <button class="btn small" data-member-edit="${esc(m.id)}">EDIT</button>
+          <button class="btn secondary small" data-member-addchance="${esc(m.id)}">+1</button>
+          <button class="btn danger small" data-member-delete="${esc(m.id)}">HAPUS</button>
+        </div></td>
+      </tr>`).join("")
+    :`<tr><td colspan="6" class="empty">Member tidak ditemukan.</td></tr>`;
+
+  document.querySelectorAll("[data-member-edit]").forEach(
+    b=>b.onclick=()=>editMember(b.dataset.memberEdit)
+  );
+  document.querySelectorAll("[data-member-addchance]").forEach(
+    b=>b.onclick=()=>addChance(b.dataset.memberAddchance)
+  );
+  document.querySelectorAll("[data-member-delete]").forEach(
+    b=>b.onclick=()=>deleteMember(b.dataset.memberDelete)
+  );
 }
-$("memberSearch").addEventListener("input",renderMembers);
-$("addMemberBtn").onclick=()=>{
-  $("memberModalTitle").textContent="Tambah Member";$("memberOriginalId").value="";
-  $("memberId").value="";$("memberPassword").value="";$("memberChances").value=1;$("memberActive").checked=true;
-  fillPrizeSelect("");openModal("memberModal");
-};
-function editMember(id){
-  const db=loadDB(),m=db.members.find(x=>x.id===id);if(!m)return;
-  $("memberModalTitle").textContent="Edit Member";$("memberOriginalId").value=m.id;
-  $("memberId").value=m.id;$("memberPassword").value=m.password;$("memberChances").value=m.chances;$("memberActive").checked=!!m.active;
-  fillPrizeSelect(m.nextPrizeId||"");openModal("memberModal");
-}
-function addChance(id){
-  const db=loadDB(),m=db.members.find(x=>x.id===id);if(!m)return;m.chances=(Number(m.chances)||0)+1;saveDB(db,"admin-member");renderAll();
-}
-function deleteMember(id){
-  if(!confirm(`Hapus member ${id}?`))return;
-  const db=loadDB();db.members=db.members.filter(x=>x.id!==id);saveDB(db,"admin-member");renderAll();
-}
-$("memberForm").addEventListener("submit",e=>{
-  e.preventDefault();
-  const db=loadDB(),original=$("memberOriginalId").value,id=$("memberId").value.trim();
-  if(!id)return;
-  const duplicate=db.members.find(m=>m.id.toLowerCase()===id.toLowerCase() && m.id!==original);
-  if(duplicate){alert("User ID sudah digunakan.");return}
-  const data={id,password:$("memberPassword").value,chances:Math.max(0,Number($("memberChances").value)||0),active:$("memberActive").checked,nextPrizeId:$("memberNextPrize").value};
-  if(original){
-    const i=db.members.findIndex(m=>m.id===original);if(i>=0)db.members[i]=data;
-  }else db.members.push(data);
-  saveDB(db,"admin-member");closeModal("memberModal");renderAll();
-});
 
 function renderPrizes(){
-  const db=loadDB();
-  $("prizeRows").innerHTML=db.prizes.length?db.prizes.map(p=>`
-    <tr>
-      <td><b>${esc(p.name)}</b></td><td>${esc(p.value||"-")}</td><td>${Number(p.weight)||0}</td>
-      <td>${Number(p.stock)===-1?"∞":Number(p.stock)||0}</td>
-      <td><span class="badge ${p.active?"on":"off"}">${p.active?"AKTIF":"NONAKTIF"}</span></td>
-      <td><div class="actions">
-        <button class="btn small" data-prize-edit="${esc(p.id)}">EDIT</button>
-        <button class="btn danger small" data-prize-delete="${esc(p.id)}">HAPUS</button>
-      </div></td>
-    </tr>`).join(""):`<tr><td colspan="6" class="empty">Belum ada hadiah.</td></tr>`;
-  document.querySelectorAll("[data-prize-edit]").forEach(b=>b.onclick=()=>editPrize(b.dataset.prizeEdit));
-  document.querySelectorAll("[data-prize-delete]").forEach(b=>b.onclick=()=>deletePrize(b.dataset.prizeDelete));
+  $("prizeRows").innerHTML=prizes.length
+    ?prizes.map(p=>`
+      <tr>
+        <td><b>${esc(p.name)}</b></td>
+        <td>${esc(p.value_text||"-")}</td>
+        <td>${Number(p.weight)||0}</td>
+        <td>${Number(p.stock)===-1?"∞":Number(p.stock)||0}</td>
+        <td><span class="badge ${p.active?"on":"off"}">${p.active?"AKTIF":"NONAKTIF"}</span></td>
+        <td><div class="actions">
+          <button class="btn small" data-prize-edit="${esc(p.id)}">EDIT</button>
+          <button class="btn danger small" data-prize-delete="${esc(p.id)}">HAPUS</button>
+        </div></td>
+      </tr>`).join("")
+    :`<tr><td colspan="6" class="empty">Belum ada hadiah.</td></tr>`;
+
+  document.querySelectorAll("[data-prize-edit]").forEach(
+    b=>b.onclick=()=>editPrize(b.dataset.prizeEdit)
+  );
+  document.querySelectorAll("[data-prize-delete]").forEach(
+    b=>b.onclick=()=>deletePrize(b.dataset.prizeDelete)
+  );
 }
-$("addPrizeBtn").onclick=()=>{
-  $("prizeModalTitle").textContent="Tambah Hadiah";$("prizeEditId").value="";
-  $("prizeName").value="";$("prizeValue").value="";$("prizeWeight").value=1;$("prizeStock").value=-1;$("prizeActive").checked=true;
-  openModal("prizeModal");
-};
-function editPrize(id){
-  const db=loadDB(),p=db.prizes.find(x=>x.id===id);if(!p)return;
-  $("prizeModalTitle").textContent="Edit Hadiah";$("prizeEditId").value=p.id;$("prizeName").value=p.name;$("prizeValue").value=p.value||"";
-  $("prizeWeight").value=p.weight;$("prizeStock").value=p.stock;$("prizeActive").checked=!!p.active;openModal("prizeModal");
-}
-function deletePrize(id){
-  if(!confirm("Hapus hadiah ini?"))return;
-  const db=loadDB();db.prizes=db.prizes.filter(x=>x.id!==id);db.members.forEach(m=>{if(m.nextPrizeId===id)m.nextPrizeId=""});saveDB(db,"admin-member");renderAll();
-}
-$("prizeForm").addEventListener("submit",e=>{
-  e.preventDefault();const db=loadDB(),id=$("prizeEditId").value;
-  const data={id:id||("p_"+Date.now()),name:$("prizeName").value.trim(),value:$("prizeValue").value.trim(),weight:Math.max(0,Number($("prizeWeight").value)||0),stock:Math.max(-1,Number($("prizeStock").value)||0),active:$("prizeActive").checked};
-  if(id){const i=db.prizes.findIndex(p=>p.id===id);if(i>=0)db.prizes[i]=data}else db.prizes.push(data);
-  saveDB(db,"admin-prize");closeModal("prizeModal");renderAll();
-});
 
 function renderHistory(){
-  const db=loadDB(),q=$("historySearch").value.trim().toLowerCase();
-  const rows=db.history.filter(h=>!q||String(h.memberId).toLowerCase().includes(q)||String(h.prizeName).toLowerCase().includes(q));
-  $("historyRows").innerHTML=rows.length?rows.map(h=>`
-    <tr>
-      <td>${fmtTime(h.time)}</td><td><b>${esc(h.memberId)}</b></td><td>${esc(h.bottle||"-")}</td>
-      <td>${esc(h.prizeName)}</td><td>${esc(h.prizeValue||"-")}</td>
-      <td><span class="badge ${h.status==="SELESAI"?"done":"wait"}">${esc(h.status||"BELUM DIPROSES")}</span></td>
-      <td><button class="btn secondary small" data-history-toggle="${esc(h.id)}">${h.status==="SELESAI"?"BATAL SELESAI":"TANDAI SELESAI"}</button></td>
-    </tr>`).join(""):`<tr><td colspan="7" class="empty">Belum ada riwayat.</td></tr>`;
-  document.querySelectorAll("[data-history-toggle]").forEach(b=>b.onclick=()=>toggleHistory(b.dataset.historyToggle));
+  const q=$("historySearch").value.trim().toLowerCase();
+  const rows=history.filter(h=>
+    !q
+    ||String(h.member_user_id).toLowerCase().includes(q)
+    ||String(h.prize_name).toLowerCase().includes(q)
+  );
+
+  $("historyRows").innerHTML=rows.length
+    ?rows.map(h=>`
+      <tr>
+        <td>${fmtTime(h.time)}</td>
+        <td><b>${esc(h.member_user_id)}</b></td>
+        <td>${esc(h.bottle||"-")}</td>
+        <td>${esc(h.prize_name)}</td>
+        <td>${esc(h.prize_value||"-")}</td>
+        <td><span class="badge ${h.status==="SELESAI"?"done":"wait"}">${esc(h.status)}</span></td>
+        <td>
+          <button class="btn secondary small" data-history-toggle="${esc(h.id)}">
+            ${h.status==="SELESAI"?"BATAL SELESAI":"TANDAI SELESAI"}
+          </button>
+        </td>
+      </tr>`).join("")
+    :`<tr><td colspan="7" class="empty">Belum ada riwayat.</td></tr>`;
+
+  document.querySelectorAll("[data-history-toggle]").forEach(
+    b=>b.onclick=()=>toggleHistory(b.dataset.historyToggle)
+  );
 }
-$("historySearch").addEventListener("input",renderHistory);
-function toggleHistory(id){
-  const db=loadDB(),h=db.history.find(x=>x.id===id);if(!h)return;h.status=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";saveDB(db,"admin-member");renderAll();
-}
-$("clearHistoryBtn").onclick=()=>{if(confirm("Hapus seluruh riwayat permainan?")){const db=loadDB();db.history=[];saveDB(db,"admin-history-clear");renderAll()}};
 
 function renderSettings(){
-  const db=loadDB();$("setAdminId").value=db.admin.id;$("setAdminPass").value="";
+  $("setAdminId").value=dashboard.admin_username||"";
+  $("setAdminPass").value="";
 }
-$("adminSettingsForm").addEventListener("submit",e=>{
-  e.preventDefault();const db=loadDB(),id=$("setAdminId").value.trim(),pass=$("setAdminPass").value;
-  if(!id)return;db.admin.id=id;if(pass)db.admin.password=pass;saveDB(db,"admin-settings");$("setAdminPass").value="";alert("Login admin berhasil diperbarui.");
-});
-$("resetDbBtn").onclick=()=>{
-  if(!confirm("RESET SEMUA DATA? Tindakan ini tidak bisa dibatalkan."))return;
-  const fresh=defaultDB();
-  saveDB(fresh,"admin-reset");
-  renderAll();
-  alert("Data sudah direset.");
-};
 
-watchDbChanges(()=>{
-  if(sessionStorage.getItem(ADMIN_SESSION)==="1"){
+function renderAll(){
+  renderDashboard();
+  renderMembers();
+  renderPrizes();
+  renderHistory();
+  renderSettings();
+}
+
+async function refreshAll({silent=false}={}){
+  if(!adminToken||refreshBusy)return;
+  refreshBusy=true;
+  try{
+    const [d,m,p,h]=await Promise.all([
+      rpc("mc_admin_dashboard",{p_token:adminToken}),
+      rpc("mc_admin_list_members",{p_token:adminToken}),
+      rpc("mc_admin_list_prizes",{p_token:adminToken}),
+      rpc("mc_admin_list_history",{p_token:adminToken,p_limit:1000})
+    ]);
+
+    dashboard=d||{};
+    members=Array.isArray(m)?m:[];
+    prizes=Array.isArray(p)?p:[];
+    history=Array.isArray(h)?h:[];
     renderAll();
-    updateSyncInfo();
+
+    const sync=$("syncInfo");
+    if(sync){
+      sync.textContent=`● ONLINE • ${new Date().toLocaleTimeString("id-ID")}`;
+      sync.style.color="#8fe9ad";
+    }
+  }catch(err){
+    if(!silent)console.error(err);
+    if(String(err.message).includes("ADMIN_SESSION_INVALID")){
+      await logoutAdmin(false);
+    }else if(!silent){
+      alert(friendlyError(err));
+    }
+  }finally{
+    refreshBusy=false;
+  }
+}
+
+async function showApp(){
+  adminLogin.style.display="none";
+  app.style.display="block";
+  switchTab(activeTab);
+  await refreshAll();
+}
+
+async function logoutAdmin(callServer=true){
+  const old=adminToken;
+  adminToken="";
+  sessionStorage.removeItem(ADMIN_SESSION);
+  app.style.display="none";
+  adminLogin.style.display="flex";
+  $("adminPassInput").value="";
+
+  if(callServer&&old){
+    try{await rpc("mc_admin_logout",{p_token:old})}catch(e){}
+  }
+}
+
+$("adminLoginForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  $("adminLoginError").textContent="";
+
+  if(!configReady()){
+    $("adminLoginError").textContent=
+      "Supabase belum dikonfigurasi. Isi Project URL dan Anon Key pada script.";
+    return;
+  }
+
+  const btn=e.currentTarget.querySelector('button[type="submit"]');
+  const oldText=btn.textContent;
+  btn.disabled=true;
+  btn.textContent="MENGHUBUNGKAN...";
+
+  try{
+    const result=await rpc("mc_admin_login",{
+      p_username:$("adminIdInput").value.trim(),
+      p_password:$("adminPassInput").value
+    });
+    adminToken=result.token;
+    sessionStorage.setItem(ADMIN_SESSION,adminToken);
+    await showApp();
+  }catch(err){
+    $("adminLoginError").textContent=friendlyError(err);
+  }finally{
+    btn.disabled=false;
+    btn.textContent=oldText;
   }
 });
 
-function updateSyncInfo(){
-  const db=loadDB();
-  const el=document.getElementById("syncInfo");
-  if(!el)return;
-  const rev=Number(db.revision||0);
-  let time="-";
-  try{
-    time=new Intl.DateTimeFormat("id-ID",{hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(db.updatedAt||Date.now()));
-  }catch(e){}
-  el.textContent=`● TERHUBUNG • REV ${rev} • ${time}`;
+$("adminLogoutBtn").onclick=()=>logoutAdmin();
+$("menuBtn").onclick=()=>sidebar.classList.toggle("open");
+$("memberSearch").addEventListener("input",renderMembers);
+$("historySearch").addEventListener("input",renderHistory);
+
+$("addMemberBtn").onclick=()=>{
+  $("memberModalTitle").textContent="Tambah Member";
+  $("memberOriginalId").value="";
+  $("memberId").value="";
+  $("memberPassword").value="";
+  $("memberPassword").required=true;
+  $("memberPassword").placeholder="Buat password member";
+  $("memberChances").value=1;
+  $("memberActive").checked=true;
+  fillPrizeSelect("");
+  openModal("memberModal");
+};
+
+function editMember(id){
+  const m=members.find(x=>x.id===id);
+  if(!m)return;
+
+  $("memberModalTitle").textContent="Edit Member";
+  $("memberOriginalId").value=m.id;
+  $("memberId").value=m.user_id;
+  $("memberPassword").value="";
+  $("memberPassword").required=false;
+  $("memberPassword").placeholder="Kosongkan jika password tidak diubah";
+  $("memberChances").value=Number(m.chances)||0;
+  $("memberActive").checked=!!m.active;
+  fillPrizeSelect(m.next_prize_id||"");
+  openModal("memberModal");
 }
 
-if(sessionStorage.getItem(ADMIN_SESSION)==="1"){
+async function addChance(id){
+  try{
+    await rpc("mc_admin_adjust_chances",{
+      p_token:adminToken,p_member_id:id,p_delta:1
+    });
+    await refreshAll();
+  }catch(err){alert(friendlyError(err))}
+}
+
+async function deleteMember(id){
+  const m=members.find(x=>x.id===id);
+  if(!confirm(`Hapus member ${m?.user_id||""}?`))return;
+
+  try{
+    await rpc("mc_admin_delete_member",{
+      p_token:adminToken,p_member_id:id
+    });
+    await refreshAll();
+  }catch(err){alert(friendlyError(err))}
+}
+
+$("memberForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+
+  const original=$("memberOriginalId").value||null;
+  const btn=e.currentTarget.querySelector('button[type="submit"]');
+  btn.disabled=true;
+
+  try{
+    await rpc("mc_admin_save_member",{
+      p_token:adminToken,
+      p_member_id:original,
+      p_user_id:$("memberId").value.trim(),
+      p_password:$("memberPassword").value||"",
+      p_chances:Math.max(0,Number($("memberChances").value)||0),
+      p_active:$("memberActive").checked,
+      p_next_prize_id:$("memberNextPrize").value||null
+    });
+    closeModal("memberModal");
+    await refreshAll();
+  }catch(err){
+    alert(friendlyError(err));
+  }finally{
+    btn.disabled=false;
+  }
+});
+
+$("addPrizeBtn").onclick=()=>{
+  $("prizeModalTitle").textContent="Tambah Hadiah";
+  $("prizeEditId").value="";
+  $("prizeName").value="";
+  $("prizeValue").value="";
+  $("prizeWeight").value=1;
+  $("prizeStock").value=-1;
+  $("prizeActive").checked=true;
+  openModal("prizeModal");
+};
+
+function editPrize(id){
+  const p=prizes.find(x=>x.id===id);
+  if(!p)return;
+
+  $("prizeModalTitle").textContent="Edit Hadiah";
+  $("prizeEditId").value=p.id;
+  $("prizeName").value=p.name;
+  $("prizeValue").value=p.value_text||"";
+  $("prizeWeight").value=Number(p.weight)||0;
+  $("prizeStock").value=Number(p.stock);
+  $("prizeActive").checked=!!p.active;
+  openModal("prizeModal");
+}
+
+async function deletePrize(id){
+  if(!confirm("Hapus hadiah ini?"))return;
+  try{
+    await rpc("mc_admin_delete_prize",{
+      p_token:adminToken,p_prize_id:id
+    });
+    await refreshAll();
+  }catch(err){alert(friendlyError(err))}
+}
+
+$("prizeForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const btn=e.currentTarget.querySelector('button[type="submit"]');
+  btn.disabled=true;
+
+  try{
+    await rpc("mc_admin_save_prize",{
+      p_token:adminToken,
+      p_prize_id:$("prizeEditId").value||null,
+      p_name:$("prizeName").value.trim(),
+      p_value_text:$("prizeValue").value.trim(),
+      p_weight:Math.max(0,Number($("prizeWeight").value)||0),
+      p_stock:Math.max(-1,Number($("prizeStock").value)||0),
+      p_active:$("prizeActive").checked
+    });
+    closeModal("prizeModal");
+    await refreshAll();
+  }catch(err){
+    alert(friendlyError(err));
+  }finally{
+    btn.disabled=false;
+  }
+});
+
+async function toggleHistory(id){
+  const h=history.find(x=>x.id===id);
+  if(!h)return;
+  const next=h.status==="SELESAI"?"BELUM DIPROSES":"SELESAI";
+
+  try{
+    await rpc("mc_admin_set_history_status",{
+      p_token:adminToken,p_history_id:id,p_status:next
+    });
+    await refreshAll();
+  }catch(err){alert(friendlyError(err))}
+}
+
+$("clearHistoryBtn").onclick=async()=>{
+  if(!confirm("Hapus seluruh riwayat permainan?"))return;
+  try{
+    await rpc("mc_admin_clear_history",{p_token:adminToken});
+    await refreshAll();
+  }catch(err){alert(friendlyError(err))}
+};
+
+$("adminSettingsForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  try{
+    await rpc("mc_admin_update_credentials",{
+      p_token:adminToken,
+      p_username:$("setAdminId").value.trim(),
+      p_password:$("setAdminPass").value||""
+    });
+    $("setAdminPass").value="";
+    await refreshAll();
+    alert("Login admin berhasil diperbarui.");
+  }catch(err){alert(friendlyError(err))}
+});
+
+$("resetDbBtn").onclick=async()=>{
+  if(!confirm("RESET SEMUA DATA MEMBER, HADIAH, DAN RIWAYAT? Tindakan ini tidak bisa dibatalkan."))return;
+  try{
+    await rpc("mc_admin_reset_game_data",{p_token:adminToken});
+    await refreshAll();
+    alert("Data game berhasil direset.");
+  }catch(err){alert(friendlyError(err))}
+};
+
+/* Refresh online otomatis. Perubahan game/member muncul tanpa reload. */
+pollTimer=setInterval(()=>{
+  if(adminToken&&!document.hidden)refreshAll({silent:true});
+},2500);
+
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden&&adminToken)refreshAll({silent:true});
+});
+
+if(!configReady()){
+  $("adminLoginError").textContent=
+    "Isi SUPABASE_URL dan SUPABASE_ANON_KEY pada script terlebih dahulu.";
+}
+
+if(adminToken){
   showApp();
-  updateSyncInfo();
 }
 })();
 </script>
